@@ -854,6 +854,8 @@ void DesktopWindow::onMouseEvent(const proto::input::MouseEvent& event)
         out_event.set_mask(event.mask());
         out_event.set_x(static_cast<int>(static_cast<double>(pos.x() * 100) / scale));
         out_event.set_y(static_cast<int>(static_cast<double>(pos.y() * 100) / scale));
+        out_event.set_frame_width(source_size.width());
+        out_event.set_frame_height(source_size.height());
 
         // Button and wheel changes must reach the host immediately and in order, so they bypass
         // coalescing. Such an event already carries the latest position, so any queued move is
