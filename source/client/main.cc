@@ -39,6 +39,7 @@
 
 #include <functional>
 
+#include "base/crypto/random.h"
 #include "base/crypto/secure_string.h"
 #include "client/database.h"
 #include "client/host_url.h"
@@ -263,6 +264,18 @@ int main(int argc, char* argv[])
             case AppLock::Result::FAILED:
                 return 1;
         }
+    }
+    else if ([]()
+    {
+        // No password to type: a random master password protects the database and its key is kept
+        // for this Windows user (the automatic unlock). Asked only when that fails.
+        LOG(INFO) << "Master password is not set, setting a random one with the automatic unlock";
+        const SecureString generated(QString::fromLatin1(Random::byteArray(24).toHex()));
+        return MasterPassword::setNew(generated) == MasterPassword::Result::SUCCESS &&
+               MasterPassword::setAutoUnlockEnabled(true);
+    }())
+    {
+        LOG(INFO) << "Master password set, unlocked automatically";
     }
     else
     {

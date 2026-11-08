@@ -44,6 +44,8 @@ static const int kReadBufferSize = 2 * 1024 * 1024; // 2 Mb.
 static const int kWriteBufferSize = 2 * 1024 * 1024; // 2 Mb.
 static const Seconds kReceiveRateInterval{ 1 };
 static const size_t kMaxUdpAttempts = 16;
+// Hosts since this version acknowledge-time every bandwidth probe (aspia 3.2.1).
+const QVersionNumber kVersion_3_2_1(3, 2, 1);
 
 } // namespace
 
@@ -253,7 +255,10 @@ void NetworkWorker::onTcpErrorOccurred(TcpChannel::ErrorCode error_code)
 //--------------------------------------------------------------------------------------------------
 void NetworkWorker::onTcpMessageReceived(quint8 channel_id, const QByteArray& buffer)
 {
-    if (channel_id != proto::peer::CHANNEL_ID_CONTROL)
+    if (channel_id == proto::peer::CHANNEL_ID_PADDING)
+        return;
+
+    if (channel_id != proto::peer::CHANNEL_ID_CONTROL && channel_id != proto::peer::CHANNEL_ID_PROBE)
     {
         routeMessage(channel_id, buffer);
         return;
@@ -273,7 +278,7 @@ void NetworkWorker::onTcpMessageReceived(quint8 channel_id, const QByteArray& bu
     else if (message.has_gateway_udp_request())
         readGatewayUdpRequest(message.gateway_udp_request());
     else if (message.has_bandwidth_probe())
-        readBandwidthProbe(message.bandwidth_probe(), /* via_udp= */ false);
+        readBandwidthProbe(message.bandwidth_probe(), channel_id, /* via_udp= */ false);
     else if (message.has_udp_switch())
         readUdpSwitch();
     else
@@ -283,7 +288,10 @@ void NetworkWorker::onTcpMessageReceived(quint8 channel_id, const QByteArray& bu
 //--------------------------------------------------------------------------------------------------
 void NetworkWorker::onUdpMessageReceived(quint8 channel_id, const QByteArray& buffer)
 {
-    if (channel_id != proto::peer::CHANNEL_ID_CONTROL)
+    if (channel_id == proto::peer::CHANNEL_ID_PADDING)
+        return;
+
+    if (channel_id != proto::peer::CHANNEL_ID_CONTROL && channel_id != proto::peer::CHANNEL_ID_PROBE)
     {
         if (udp_switch_pending_)
         {
@@ -316,7 +324,7 @@ void NetworkWorker::onUdpMessageReceived(quint8 channel_id, const QByteArray& bu
             udp_ready_ = true;
         }
 
-        readBandwidthProbe(message.bandwidth_probe(), /* via_udp= */ true);
+        readBandwidthProbe(message.bandwidth_probe(), channel_id, /* via_udp= */ true);
     }
     else
     {
@@ -547,12 +555,10 @@ void NetworkWorker::tcpChannelReady()
     session_state_->setHostVersion(host_version);
 
     const QVersionNumber& client_version = kCurrentVersion;
+    // A newer host is not refused: the client announced the host's own version to it (see
+    // ClientAuthenticator::sendSessionResponse), messages it does not know are skipped.
     if (host_version > client_version)
-    {
-        LOG(ERROR) << "Version mismatch. Host:" << host_version << "Client:" << client_version;
-        emit sig_statusChanged(Status::VERSION_MISMATCH);
-        return;
-    }
+        LOG(WARNING) << "Host is newer than the client. Host:" << host_version << "Client:" << client_version;
 
     // The handshake passed (connection established, authentication done, versions compatible). The
     // session sets itself up on this status and calls onSessionReady() to unpause the channel.
@@ -595,8 +601,23 @@ void NetworkWorker::connectionLost(TcpChannel::ErrorCode error_code)
 }
 
 //--------------------------------------------------------------------------------------------------
-void NetworkWorker::readBandwidthProbe(const proto::peer::BandwidthProbe& probe, bool via_udp)
+void NetworkWorker::readBandwidthProbe(const proto::peer::BandwidthProbe& probe, quint8 channel_id,
+                                       bool via_udp)
 {
+    // Hosts since 3.2.1 time the answer to every probe themselves: it is acknowledged at once on the
+    // channel it came on. Left unanswered they drop the session to the lowest bitrate.
+    if (session_state_->hostVersion() >= kVersion_3_2_1)
+    {
+        proto::peer::ClientToHost message;
+        message.mutable_bandwidth_probe_ack()->set_train_id(probe.train_id());
+
+        if (via_udp)
+            udp_channel_->send(channel_id, serialize(message), true);
+        else
+            tcp_channel_->send(channel_id, serialize(message));
+        return;
+    }
+
     ProbeTrain& probe_train = via_udp ? udp_probe_train_ : tcp_probe_train_;
 
     // First probe of a new train (an unfinished previous train - lost probes on UDP - is simply

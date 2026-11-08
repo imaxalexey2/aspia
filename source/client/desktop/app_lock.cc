@@ -57,6 +57,13 @@ AppLock::~AppLock() = default;
 // static
 AppLock::Result AppLock::unlock()
 {
+    // With the automatic unlock the password is not asked after a lock either.
+    if (MasterPassword::autoUnlock())
+    {
+        LOG(INFO) << "Unlocked automatically";
+        return Result::UNLOCKED;
+    }
+
     while (true)
     {
         CredentialsDialog dialog(CredentialsDialog::Type::ENTER_PASSWORD, nullptr);
