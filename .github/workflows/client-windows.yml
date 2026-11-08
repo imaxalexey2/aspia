@@ -43,11 +43,22 @@ jobs:
           restore-keys: |
             vcpkg-x64-windows-static-${{ hashFiles('vcpkg.json', '.gitmodules') }}-
 
-      - name: Configure (vcpkg dependencies)
+      # The pcre2 port asks api.github.com without a token, which shared runners get refused (403):
+      # the same file is fetched with the token of the run beforehand (vcpkg still checks its SHA512).
+      - name: Prefetch the pcre2 sljit gitlink
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           New-Item -ItemType Directory -Force -Path $env:VCPKG_DEFAULT_BINARY_CACHE, $env:VCPKG_DOWNLOADS | Out-Null
-          cmake --preset ci
+          $version = (Get-Content vcpkg4aspia/ports/pcre2/vcpkg.json -Raw | ConvertFrom-Json).version
+          $file = Join-Path $env:VCPKG_DOWNLOADS "pcre2-pcre2-$version-sljit-gitlink.json"
+          curl.exe -sSfL -H "Authorization: Bearer $env:GH_TOKEN" -o $file "https://api.github.com/repos/PCRE2Project/pcre2/contents/deps/sljit?ref=pcre2-$version"
+          Get-FileHash -Algorithm SHA512 $file | Format-List
+
+      - name: Configure (vcpkg dependencies)
+        shell: pwsh
+        run: cmake --preset ci
 
       - name: Save vcpkg binary cache
         if: always()
