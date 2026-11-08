@@ -620,6 +620,18 @@ void ClientAuthenticator::sendSessionResponse()
     version->set_patch(ASPIA_VERSION_PATCH);
     version->set_revision(GIT_COMMIT_COUNT);
 
+    // A host closes the connection after the login when the client is older than the host. A newer
+    // peer is told its own version.
+    const QVersionNumber own(ASPIA_VERSION_MAJOR, ASPIA_VERSION_MINOR, ASPIA_VERSION_PATCH);
+    const QVersionNumber peer = peerVersion();
+    if (peer > own)
+    {
+        CLOG(INFO) << "Peer is newer (" << peer.toString() << "), announcing its version";
+        version->set_major(static_cast<quint32>(peer.majorVersion()));
+        version->set_minor(static_cast<quint32>(peer.minorVersion()));
+        version->set_patch(static_cast<quint32>(peer.microVersion()));
+    }
+
     response.set_os_name(SysInfo::operatingSystemName().toStdString());
     response.set_computer_name(SysInfo::computerName().toStdString());
     response.set_cpu_cores(static_cast<quint32>(SysInfo::processorThreads()));

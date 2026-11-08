@@ -1,0 +1,69 @@
+name: client-windows
+
+# Client for Windows x64 on a GitHub-hosted runner (windows.yml of the upstream needs its own runner).
+on:
+  push:
+    branches:
+      - client-3.2.2-custom
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  client:
+    runs-on: windows-2022
+    timeout-minutes: 360
+    env:
+      VCPKG_TRIPLET: x64-windows-static
+      VCPKG_DEFAULT_HOST_TRIPLET: x64-windows-static
+      VCPKG_DEFAULT_BINARY_CACHE: C:\vcpkg-bincache
+      VCPKG_DOWNLOADS: C:\vcpkg-downloads
+      VCPKG_INSTALLED_DIR: ${{ github.workspace }}/builds/ci/vcpkg_installed
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: amd64
+
+      # Built dependencies (Qt and the rest) are kept between runs: the first run builds them for hours.
+      - name: Restore vcpkg binary cache
+        id: vcpkg-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: C:\vcpkg-bincache
+          key: vcpkg-x64-windows-static-${{ hashFiles('vcpkg.json', '.gitmodules') }}-${{ github.run_id }}
+          restore-keys: |
+            vcpkg-x64-windows-static-${{ hashFiles('vcpkg.json', '.gitmodules') }}-
+
+      - name: Configure (vcpkg dependencies)
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path $env:VCPKG_DEFAULT_BINARY_CACHE, $env:VCPKG_DOWNLOADS | Out-Null
+          cmake --preset ci
+
+      - name: Save vcpkg binary cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: C:\vcpkg-bincache
+          key: ${{ steps.vcpkg-cache.outputs.cache-primary-key }}
+
+      - name: Build client
+        shell: pwsh
+        run: cmake --build --preset ci-release --target aspia_client
+
+      - name: Upload client
+        uses: actions/upload-artifact@v4
+        with:
+          name: aspia-client-x64
+          path: builds/ci/**/aspia_client.exe
+          if-no-files-found: error
+          retention-days: 30

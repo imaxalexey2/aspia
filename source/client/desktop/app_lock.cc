@@ -64,6 +64,13 @@ AppLock::Result AppLock::unlock(bool reset_allowed)
 {
     const int kResetResult = QDialog::Accepted + 1;
 
+    // With the automatic unlock the password is not asked after a lock either.
+    if (MasterPassword::autoUnlock())
+    {
+        LOG(INFO) << "Unlocked automatically";
+        return Result::UNLOCKED;
+    }
+
     while (true)
     {
         AutoQPointer<CredentialsDialog> dialog(

@@ -518,12 +518,10 @@ void NetworkWorker::tcpChannelReady()
     session_state_->setHostVersion(host_version);
 
     const QVersionNumber& client_version = kCurrentVersion;
+    // A newer host is not refused: the client announced the host's own version to it (see
+    // ClientAuthenticator::sendSessionResponse), messages it does not know are skipped.
     if (host_version > client_version)
-    {
-        LOG(ERROR) << "Version mismatch. Host:" << host_version << "Client:" << client_version;
-        emit sig_statusChanged(Status::VERSION_MISMATCH);
-        return;
-    }
+        LOG(WARNING) << "Host is newer than the client. Host:" << host_version << "Client:" << client_version;
 
     // The handshake passed (connection established, authentication done, versions compatible). The
     // session sets itself up on this status and calls onSessionReady() to unpause the channel.

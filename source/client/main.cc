@@ -40,6 +40,7 @@
 #include <functional>
 
 #include "base/auto_qpointer.h"
+#include "base/crypto/random.h"
 #include "base/crypto/secure_string.h"
 #include "client/database.h"
 #include "client/host_url.h"
@@ -349,10 +350,18 @@ int main(int argc, char* argv[])
     }
     else
     {
-        LOG(INFO) << "Master password is not set, prompting user to set one";
+        // No password to type: a random master password protects the database and its key is kept
+        // for this Windows user (the automatic unlock). Asked only when that fails.
+        LOG(INFO) << "Master password is not set, setting a random one with the automatic unlock";
 
-        if (!setMasterPassword())
-            return 0;
+        const SecureString generated(QString::fromLatin1(Random::byteArray(24).toHex()));
+        if (MasterPassword::setNew(generated) != MasterPassword::Result::SUCCESS ||
+            !MasterPassword::setAutoUnlockEnabled(true))
+        {
+            LOG(ERROR) << "Unable to set up the automatic unlock, prompting user to set a password";
+            if (!setMasterPassword())
+                return 0;
+        }
     }
 
     backupOnStartup();
